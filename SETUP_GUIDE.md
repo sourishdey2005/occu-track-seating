@@ -14,7 +14,10 @@ Follow these steps to connect your ESP32 to any WiFi and send data to your local
 2.  Make sure you have the following libraries installed in the Arduino IDE:
     - `WiFiManager` by tablatronix
     - `HX711` by Bogdan Necula
-3.  Connect your ESP32 to your laptop.
+3.  In the Arduino IDE:
+    - Go to **Tools > Board > ESP32 > ESP32 Dev Module**.
+    - Go to **Tools > Upload Speed** and set it to `115200` (safer for CP2102).
+4.  Connect your ESP32 to your laptop.
 4.  Compile and Upload the code.
 
 ## Step 3: Configure WiFi and Server IP

@@ -1,11 +1,15 @@
 #include "HX711.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiManager.h> // Include WiFiManager Library
+#include <WiFiManager.h> 
+#include <Preferences.h> // Include Preferences to save IP
 
 // --- CONFIGURATION ---
+// Target Board: ESP32 DEVKITV1 (30 Pin)
 // No hardcoded WiFi credentials needed!
-const char* defaultServerName = "http://your-app-name.render.com/update"; 
+Preferences preferences;
+char server_ip[40] = "192.168.1.100"; // Default fallback
+bool shouldSaveConfig = false;
 
 float calibration_factor = -450.0; 
 
@@ -33,6 +37,12 @@ const long updateInterval = 500;
 float weightBuffer[5];
 int bufferIndex = 0;
 
+// Callback notifying us of the need to save config
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -49,22 +59,41 @@ void setup() {
   scale.tare();
   Serial.println("Tare complete.");
 
+  // --- Load saved IP ---
+  preferences.begin("occutrack", false);
+  String b_ip = preferences.getString("server_ip", "192.168.1.100");
+  b_ip.toCharArray(server_ip, 40);
+
   // --- WiFiManager Setup ---
   WiFiManager wm;
-  
-  // Uncomment to reset settings for testing
-  // wm.resetSettings();
+  wm.setSaveConfigCallback(saveConfigCallback);
+
+  // Add custom parameter for Server IP
+  WiFiManagerParameter custom_server_ip("server", "Server IP (e.g. 192.168.1.5)", server_ip, 40);
+  wm.addParameter(&custom_server_ip);
 
   Serial.println("Connecting to WiFi...");
   // This will create a hotspot named "OccuTrack_Setup" if it fails to connect
-  bool res = wm.autoConnect("OccuTrack_Setup"); 
-
-  if (!res) {
-    Serial.println("Failed to connect. Restarting...");
+  if (!wm.autoConnect("OccuTrack_Setup")) {
+    Serial.println("Failed to connect and hit timeout");
+    delay(3000);
     ESP.restart();
-  } else {
-    Serial.println("Connected to WiFi! Ready.");
   }
+
+  // Save the custom parameters to preferences
+  if (shouldSaveConfig) {
+    String new_ip = String(custom_server_ip.getValue());
+    new_ip.trim();
+    if (new_ip.length() > 0) {
+      preferences.putString("server_ip", new_ip);
+      new_ip.toCharArray(server_ip, 40);
+      Serial.println("New IP Saved: " + new_ip);
+    }
+  }
+  
+  Serial.println("Connected to WiFi! Ready.");
+  Serial.print("Current Server IP: ");
+  Serial.println(server_ip);
 }
 
 float getSmoothedWeight() {
@@ -92,7 +121,7 @@ void loop() {
   float weight = getSmoothedWeight();
   float distance = getDistance();
 
-  if (weight < 0.15) weight = 0.0;  // ignore tiny noise
+  if (weight < 0.15) weight = 0.0;  
   if (weight > 20.0) weight = 20.0;
 
   String w_status;
@@ -122,7 +151,8 @@ void loop() {
     lastUpdateTime = millis();
 
     if (WiFi.status() == WL_CONNECTED) {
-      http.begin(defaultServerName);
+      String url = "http://" + String(server_ip) + ":8000/update";
+      http.begin(url);
       http.addHeader("Content-Type", "application/json");
 
       String json = "{\"seat_id\":101,\"status\":\"" + w_status +
@@ -133,7 +163,7 @@ void loop() {
       if (httpResponseCode > 0) {
         Serial.printf("Data Sent! Status: %d\n", httpResponseCode);
       } else {
-        Serial.printf("Error sending data: %s\n", http.errorToString(httpResponseCode).c_str());
+        Serial.printf("Error sending data to %s: %s\n", url.c_str(), http.errorToString(httpResponseCode).c_str());
       }
       http.end();
     }
