@@ -1,0 +1,198 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Smart Library Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  font-family: 'Segoe UI', sans-serif;
+  margin: 0;
+  background: #f4f6f9;
+}
+
+.header {
+  background: #1e293b;
+  color: white;
+  padding: 15px 30px;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.container {
+  padding: 20px 40px;
+}
+
+.stats {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.card {
+  flex: 1;
+  padding: 20px;
+  border-radius: 12px;
+  color: white;
+  font-size: 18px;
+  text-align: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  transition: 0.3s;
+}
+
+.card:hover {
+  transform: scale(1.05);
+}
+
+.free { background: #16a34a; }
+.partial { background: #facc15; color: black; }
+.occupied { background: #dc2626; }
+
+.seat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+
+.seat {
+  width: 65px;
+  height: 65px;
+  border-radius: 10px;
+  color: white;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.3s;
+}
+
+.seat:hover {
+  transform: scale(1.1);
+}
+
+.green { background: #16a34a; }
+.yellow { background: #facc15; color:black; }
+.red { background: #dc2626; }
+
+.chart-container {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.footer {
+  text-align:center;
+  padding:10px;
+  font-size:14px;
+  color:#777;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+📚 Smart Library Seat Monitoring System
+</div>
+
+<div class="container">
+
+<div class="stats">
+  <div class="card free" id="freeCount">Free: 0</div>
+  <div class="card partial" id="partialCount">Partial: 0</div>
+  <div class="card occupied" id="occupiedCount">Occupied: 0</div>
+</div>
+
+<div class="seat-grid" id="seats"></div>
+
+<div class="chart-container">
+  <canvas id="chart"></canvas>
+</div>
+
+</div>
+
+<div class="footer">
+Real-time Seat Analytics • Updated every 2 seconds
+</div>
+
+<script>
+
+let chart;
+
+async function fetchSeats() {
+  try {
+    const res = await fetch("10.185.61.186:8000/seats");
+    const data = await res.json();
+
+    let free=0, partial=0, occupied=0;
+    let html="";
+
+    for (let id in data) {
+
+      let status = data[id];
+      let colorClass="green";
+
+      if(status=="PARTIAL") {
+        colorClass="yellow";
+        partial++;
+      }
+      else if(status=="OCCUPIED") {
+        colorClass="red";
+        occupied++;
+      }
+      else {
+        free++;
+      }
+
+      html += `<div class="seat ${colorClass}">${id}</div>`;
+    }
+
+    document.getElementById("seats").innerHTML = html;
+
+    document.getElementById("freeCount").innerText = "Free: " + free;
+    document.getElementById("partialCount").innerText = "Partial: " + partial;
+    document.getElementById("occupiedCount").innerText = "Occupied: " + occupied;
+
+    updateChart(free, partial, occupied);
+
+  } catch (err) {
+    console.log("Server not reachable");
+  }
+}
+
+function updateChart(f,p,o){
+
+  if(chart) chart.destroy();
+
+  const ctx = document.getElementById('chart');
+
+  chart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Free', 'Partial', 'Occupied'],
+      datasets: [{
+        data: [f,p,o],
+        backgroundColor: ['#16a34a','#facc15','#dc2626']
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }
+  });
+}
+
+setInterval(fetchSeats,2000);
+fetchSeats();
+
+</script>
+
+</body>
+</html>

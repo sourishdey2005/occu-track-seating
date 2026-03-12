@@ -1,0 +1,157 @@
+#include "HX711.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// --- CONFIGURATION ---
+const char* ssid = "Galaxy S24FE 5G";
+const char* password = "Sourish2005";
+const char* serverName = "http://10.185.61.186:8000/update";
+
+float calibration_factor = -450.0; 
+
+// Pins - Weight System
+#define LOADCELL_DOUT_PIN 4
+#define LOADCELL_SCK_PIN 5
+#define W_LED_G 18
+#define W_LED_Y 19
+#define W_LED_R 21
+
+// Pins - Distance System
+#define TRIG_PIN 12
+#define ECHO_PIN 14
+#define D_LED_G 25
+#define D_LED_Y 26
+#define D_LED_R 27
+
+HX711 scale;
+HTTPClient http;
+
+unsigned long lastUpdateTime = 0;
+const long updateInterval = 500;  // slower = more stable
+
+// Moving average buffer
+float weightBuffer[5];
+int bufferIndex = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(W_LED_G, OUTPUT); pinMode(W_LED_Y, OUTPUT); pinMode(W_LED_R, OUTPUT);
+  pinMode(D_LED_G, OUTPUT); pinMode(D_LED_Y, OUTPUT); pinMode(D_LED_R, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  scale.set_scale(calibration_factor);
+
+  Serial.println("Stabilizing Loadcell...");
+  delay(3000);   // Give sensor time to stabilize
+  scale.tare();
+  Serial.println("Tare complete.");
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println("\nSystem Ready.");
+}
+
+float getSmoothedWeight() {
+  float raw = scale.get_units(5);
+
+  if (raw < 0) raw = 0;
+
+  // Store in buffer
+  weightBuffer[bufferIndex] = raw;
+  bufferIndex = (bufferIndex + 1) % 5;
+
+  // Calculate average
+  float sum = 0;
+  for (int i = 0; i < 5; i++) {
+    sum += weightBuffer[i];
+  }
+  return sum / 5.0;
+}
+
+float getDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 20000);
+  if (duration == 0) return 400.0;
+  return (duration * 0.034) / 2;
+}
+
+void loop() {
+
+  float weight = getSmoothedWeight();
+  float distance = getDistance();
+
+  // ---- NOISE FILTER ----
+  if (weight < 0.15) weight = 0.0;  // ignore tiny noise
+  if (weight > 20.0) weight = 20.0;
+
+  String w_status;
+
+  // ---- IMPROVED THRESHOLDS ----
+  if (weight < 0.50) {        // increased threshold
+    w_status = "EMPTY";
+    digitalWrite(W_LED_G, HIGH);
+    digitalWrite(W_LED_Y, LOW);
+    digitalWrite(W_LED_R, LOW);
+  }
+  else if (weight < 5.0) {
+    w_status = "PARTIALLY";
+    digitalWrite(W_LED_G, LOW);
+    digitalWrite(W_LED_Y, HIGH);
+    digitalWrite(W_LED_R, LOW);
+  }
+  else {
+    w_status = "FULL";
+    digitalWrite(W_LED_G, LOW);
+    digitalWrite(W_LED_Y, LOW);
+    digitalWrite(W_LED_R, HIGH);
+  }
+
+  // ---- DISTANCE LOGIC ----
+  if (distance > 100) {
+    digitalWrite(D_LED_G, HIGH);
+    digitalWrite(D_LED_Y, LOW);
+    digitalWrite(D_LED_R, LOW);
+  } 
+  else if (distance > 40) {
+    digitalWrite(D_LED_G, LOW);
+    digitalWrite(D_LED_Y, HIGH);
+    digitalWrite(D_LED_R, LOW);
+  } 
+  else {
+    digitalWrite(D_LED_G, LOW);
+    digitalWrite(D_LED_Y, LOW);
+    digitalWrite(D_LED_R, HIGH);
+  }
+
+  // ---- SERVER UPDATE ----
+  if (millis() - lastUpdateTime >= updateInterval) {
+    lastUpdateTime = millis();
+
+    if (WiFi.status() == WL_CONNECTED) {
+      http.begin(serverName);
+      http.addHeader("Content-Type", "application/json");
+
+      String json = "{\"seat_id\":101,\"status\":\"" + w_status +
+                    "\",\"weight\":" + String(weight, 2) +
+                    ",\"dist\":" + String(distance, 1) + "}";
+
+      http.POST(json);
+      http.end();
+    }
+
+    Serial.printf("Weight: %.2f kg | Distance: %.1f cm | %s\n",
+                  weight, distance, w_status.c_str());
+  }
+}

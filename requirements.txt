@@ -1,0 +1,3 @@
+pip install fastapi uvicorn python-multipart
+uvicorn server:app --reload
+pip install fastapi uvicorn python-multipart
