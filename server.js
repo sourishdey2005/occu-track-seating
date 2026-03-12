@@ -5,9 +5,9 @@ const path = require('path');
 const os = require('os');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const API_KEY = "AIzaSyCqrC_jq2mSCnyCafg48lE-ybSdrz4LGBM";
+const API_KEY = process.env.GEMINI_API_KEY || "AIzaSyCqrC_jq2mSCnyCafg48lE-ybSdrz4LGBM";
 const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Using 2.0 Flash as identified from API
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
 
 const app = express();
 const server = http.createServer(app);
@@ -21,7 +21,7 @@ const io = socketIo(server, {
     transports: ['websocket', 'polling'] 
 });
 
-const PORT = 8000;
+const PORT = process.env.PORT || 8000;
 
 app.use(express.json());
 // Ensure your index.html is inside a folder named 'public'
